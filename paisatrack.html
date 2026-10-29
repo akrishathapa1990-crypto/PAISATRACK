@@ -1,0 +1,189 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaisaTrack - Money Manager</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f5fb;color:#20243a}
+header{background:#635bdb;color:white;padding:25px}
+header h1{margin:0 0 8px}
+main{max-width:950px;margin:25px auto;padding:0 16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px}
+.card,.panel{background:white;padding:20px;border-radius:15px;margin-bottom:16px;box-shadow:0 4px 15px #00000008}
+.card p{color:#777;margin:0}
+.card h2{overflow-wrap:anywhere}
+.green{color:#16875d}.red{color:#d64b5b}
+input,select,button{padding:12px;border-radius:8px;border:1px solid #ddd;font:inherit}
+input,select{width:100%;margin:6px 0 14px}
+button{background:#635bdb;color:white;border:0;cursor:pointer}
+button:hover{opacity:.9}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:5px 12px}
+form button{align-self:end;margin-bottom:14px}
+.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid #eee}
+.item small{display:block;color:#777;margin-top:5px}
+.delete{background:#fff0f1;color:#c33;padding:8px}
+.progress{height:12px;background:#eee;border-radius:20px;overflow:hidden}
+#bar{height:100%;width:0;background:#635bdb}
+.note{font-size:13px;color:#777}
+</style>
+</head>
+<body>
+<header>
+  <h1>💰 PaisaTrack</h1>
+  <div>Manage your money, simply.</div>
+</header>
+
+<main>
+  <div class="cards">
+    <div class="card"><p>Total Balance</p><h2 id="balance">NPR 0</h2></div>
+    <div class="card"><p>Total Income</p><h2 class="green" id="income">NPR 0</h2></div>
+    <div class="card"><p>Total Expenses</p><h2 class="red" id="expenses">NPR 0</h2></div>
+  </div>
+
+  <section class="panel">
+    <h2>➕ Add Transaction</h2>
+    <form id="form">
+      <div><label>Description</label><input id="description" placeholder="e.g. College fees" required></div>
+      <div><label>Amount (NPR)</label><input id="amount" type="number" min="0.01" step="0.01" placeholder="e.g. 500" required></div>
+      <div><label>Type</label><select id="type"><option value="expense">Expense</option><option value="income">Income</option></select></div>
+      <div><label>Category</label>
+        <select id="category">
+          <option>Food</option><option>Shopping</option><option>Travel</option>
+          <option>Education</option><option>Salary</option><option>Gift</option><option>Other</option>
+        </select>
+      </div>
+      <div><label>Date</label><input id="date" type="date" required></div>
+      <button type="submit">Add Transaction</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>🎯 Monthly Budget</h2>
+    <label>Set your monthly budget (NPR)</label>
+    <input id="budget" type="number" min="0" placeholder="200000">
+    <button id="saveBudget">Save Budget</button>
+    <p id="budgetText">Set a budget to get started.</p>
+    <div class="progress"><div id="bar"></div></div>
+    <p class="note" id="budgetNote"></p>
+  </section>
+
+  <section class="panel">
+    <h2>📋 Transaction History</h2>
+    <input id="search" placeholder="Search transactions...">
+    <div id="list"></div>
+  </section>
+  <p class="note">Your data is saved in this browser on this device. </p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = n => "NPR " + n.toLocaleString("en-IN",{maximumFractionDigits:2});
+let transactions = [];
+let budget = 200000;
+
+try {
+  transactions = JSON.parse(localStorage.getItem("paisaTransactions")) || [];
+  budget = Number(localStorage.getItem("paisaBudget")) || 200000;
+} catch(e) {}
+
+$("date").value = new Date().toISOString().slice(0,10);
+$("budget").value = budget;
+
+function save(){
+  localStorage.setItem("paisaTransactions",JSON.stringify(transactions));
+  localStorage.setItem("paisaBudget",budget);
+}
+
+function render(){
+  const income = transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+  const expenses = transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  $("balance").textContent = money(income-expenses);
+  $("income").textContent = money(income);
+  $("expenses").textContent = money(expenses);
+
+  const now = new Date();
+  const monthExpenses = transactions.filter(t=>{
+    const d = new Date(t.date+"T12:00:00");
+    return t.type==="expense" && d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+  }).reduce((s,t)=>s+t.amount,0);
+
+  const percent = budget>0 ? Math.min(monthExpenses/budget*100,100) : 0;
+  $("budgetText").textContent = money(monthExpenses)+" spent of "+money(budget);
+  $("budgetNote").textContent = budget>0
+    ? money(Math.max(0,budget-monthExpenses))+" budget remaining"+(monthExpenses>budget?" — you are over budget!":"")
+    : "Enter a budget greater than zero.";
+  $("bar").style.width = percent+"%";
+  $("bar").style.background = monthExpenses>budget ? "#d64b5b" : "#635bdb";
+
+  const query = $("search").value.toLowerCase();
+  const filtered = transactions.filter(t=>
+    (t.description+" "+t.category+" "+t.type).toLowerCase().includes(query)
+  ).sort((a,b)=>b.date.localeCompare(a.date));
+
+  $("list").innerHTML = filtered.length ? filtered.map(t=>`
+    <div class="item">
+      <div>
+        <strong>${escapeHTML(t.description)}</strong>
+        <small>${escapeHTML(t.category)} · ${escapeHTML(t.date)} · ${t.type}</small>
+      </div>
+      <strong class="${t.type==="income"?"green":"red"}">
+        ${t.type==="income"?"+":"−"}${money(t.amount)}
+      </strong>
+      <button class="delete" onclick="removeTransaction('${t.id}')">Delete</button>
+    </div>`).join("") : "<p>No transactions yet. Add your first one above!</p>";
+}
+
+function escapeHTML(text){
+  return String(text).replace(/[&<>"']/g,c=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+
+$("form").addEventListener("submit",e=>{
+  e.preventDefault();
+  const amount = Number($("amount").value);
+  if(!Number.isFinite(amount)||amount<=0){
+    alert("Please enter an amount greater than zero.");
+    return;
+  }
+  transactions.push({
+    id:Date.now().toString()+Math.random().toString(16).slice(2),
+    description:$("description").value.trim(),
+    amount,
+    type:$("type").value,
+    category:$("category").value,
+    date:$("date").value
+  });
+  save();
+  $("form").reset();
+  $("date").value = new Date().toISOString().slice(0,10);
+  render();
+});
+
+function removeTransaction(id){
+  if(confirm("Delete this transaction?")){
+    transactions = transactions.filter(t=>t.id!==id);
+    save();
+    render();
+  }
+}
+
+$("saveBudget").addEventListener("click",()=>{
+  const value = Number($("budget").value);
+  if(!Number.isFinite(value)||value<=0){
+    alert("Please enter a budget greater than zero.");
+    return;
+  }
+  budget=value;
+  save();
+  render();
+});
+
+$("search").addEventListener("input",render);
+render();
+</script>
+</body>
+</html>
